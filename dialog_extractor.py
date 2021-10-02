@@ -355,11 +355,19 @@ class Extractor:
 
         event_loop.run_until_complete(async_main())
 
-    def get_files(self, target_path: str) -> Tuple[List[HtmlFile], bool]:
-        """Return list of files and bool - is_a_manual"""
+    @classmethod
+    def is_input_html_file(cls, target_path):
+        if not os.path.exists(target_path):
+            raise OSError('Target source not exists')
         if (any(target_path.endswith(ext) for ext in POSSIBLE_HTML_EXT)
                 and os.path.isfile(target_path)):
-            return [self.parser.get_manual_file(target_path)], True
+            return True
+        return False
+
+    def get_files(self, target_path: str,
+                  is_manual_html: bool) -> List[HtmlFile]:
+        if is_manual_html:
+            return [self.parser.get_manual_file(target_path)]
         if os.path.isdir(target_path):
             return self.parser.search_html(target_path), False
         raise ValueError('Unknown target')
@@ -367,8 +375,11 @@ class Extractor:
 
 def main():
     root_dir = r'.'
-    extractor = Extractor(100, include_chat_with_girls=True)
-    files, is_manual = extractor.parser.search_html(root_dir)
+    is_manual_file = Extractor.is_input_html_file(root_dir)
+    extractor = Extractor(100,
+                          include_chat_with_girls=True,
+                          manual_file=is_manual_file)
+    files = extractor.get_files(root_dir, is_manual_file)
     extractor.download_from_html_files(files)
 
 
