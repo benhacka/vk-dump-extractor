@@ -1,4 +1,7 @@
+#!/usr/bin/env python3
+
 import asyncio
+from argparse import ArgumentParser
 from datetime import datetime
 
 import aiofiles
@@ -31,6 +34,13 @@ class ParserMode(Enum):
 
 
 POSSIBLE_HTML_EXT = ['html', 'htm']
+
+
+class DefaultDirNames(Enum):
+    ATTACHMENT_PATH_NAME = 'Вложения'
+    CHAT_PATH_NAME = 'Диалоги'
+    GIRLS_DIR = 'Девочки'
+    BOYS_DIR = 'Парни'
 
 
 class Image:
@@ -179,7 +189,8 @@ class Parser:
         if not any((include_attachment_girls, include_chat_with_girls,
                     include_attachment_boys,
                     include_chat_with_boys)) and not manual_file:
-            raise ValueError('No sources to download!')
+            raise ValueError(
+                'No sources type (attach or/and dialog) to download!')
         self._mode = (ParserMode.TARGET_FILE
                       if manual_file else ParserMode.AUTO_SEARCH)
         self._attachment_path_name = attachment_path_name
@@ -369,17 +380,82 @@ class Extractor:
         if is_manual_html:
             return [self.parser.get_manual_file(target_path)]
         if os.path.isdir(target_path):
-            return self.parser.search_html(target_path), False
+            return self.parser.search_html(target_path)
         raise ValueError('Unknown target')
 
 
+def arg_parser():
+    parser = ArgumentParser()
+    parser.add_argument('-t',
+                        '--target-dir-file-path',
+                        help='Target path',
+                        required=True)
+    parser.add_argument('-ag',
+                        '--attachment-girls',
+                        action='store_true',
+                        default=False,
+                        help='Download photos from attachment with girls')
+    parser.add_argument('-ab',
+                        '--attachment-boys',
+                        action='store_true',
+                        default=False,
+                        help='Download photos from attachment with boys')
+    parser.add_argument('-cg',
+                        '--chat-girls',
+                        action='store_true',
+                        default=False,
+                        help='Download photos from attachment with girls')
+    parser.add_argument('-cb',
+                        '--chat-boys',
+                        action='store_true',
+                        default=False,
+                        help='Download photos from attachment with boys')
+    parser.add_argument(
+        '-an',
+        '--attachment-dir-name',
+        default=DefaultDirNames.ATTACHMENT_PATH_NAME.value,
+        help=(f'Attachment directory name. '
+              f'Default: {DefaultDirNames.ATTACHMENT_PATH_NAME.value}'))
+    parser.add_argument(
+        '-dn',
+        '--dialog-dir-name',
+        default=DefaultDirNames.CHAT_PATH_NAME.value,
+        help=(f'Dialog directory name. '
+              f'Default: {DefaultDirNames.CHAT_PATH_NAME.value}'))
+    parser.add_argument('-gn',
+                        '--girl-dir-name',
+                        default=DefaultDirNames.GIRLS_DIR.value,
+                        help=(f'Girl dir name. '
+                              f'Default: {DefaultDirNames.GIRLS_DIR.value}'))
+    parser.add_argument('-bn',
+                        '--boy-dir-name',
+                        default=DefaultDirNames.BOYS_DIR.value,
+                        help=(f'Boy dir name. '
+                              f'Default: {DefaultDirNames.BOYS_DIR.value}'))
+    default_thread_count = 100
+    parser.add_argument('--thread-count',
+                        default=default_thread_count,
+                        type=int,
+                        help=(f'Max download coroutines (thread) count. '
+                              f'Default: {default_thread_count}'))
+    return parser.parse_args()
+
+
 def main():
-    root_dir = r'.'
-    is_manual_file = Extractor.is_input_html_file(root_dir)
-    extractor = Extractor(100,
-                          include_chat_with_girls=True,
-                          manual_file=is_manual_file)
-    files = extractor.get_files(root_dir, is_manual_file)
+    args = arg_parser()
+    target = args.target_dir_file_path
+    is_manual_file = Extractor.is_input_html_file(target)
+    extractor = Extractor(args.thread_count,
+                          include_attachment_girls=args.attachment_girls,
+                          include_attachment_boys=args.attachment_boys,
+                          include_chat_with_girls=args.chat_girls,
+                          include_chat_with_boys=args.chat_boys,
+                          manual_file=is_manual_file,
+                          attachment_path_name=args.attachment_dir_name,
+                          chat_path_name=args.dialog_dir_name,
+                          girls_dir=args.girl_dir_name,
+                          boys_dir=args.boy_dir_name)
+    files = extractor.get_files(target, is_manual_file)
     extractor.download_from_html_files(files)
 
 
