@@ -30,6 +30,9 @@ class ParserMode(Enum):
     AUTO_SEARCH = auto()
 
 
+POSSIBLE_HTML_EXT = ['html', 'htm']
+
+
 class Image:
     def __init__(self, source_file, url, author='', date=''):
         self._path = self.path_generator(source_file, url, author, date)
@@ -352,7 +355,8 @@ class Extractor:
         event_loop.run_until_complete(async_main())
 
     def get_files(self, target_path: str):
-        if target_path.endswith('html') and os.path.isfile(target_path):
+        if (any(target_path.endswith(ext) for ext in POSSIBLE_HTML_EXT)
+                and os.path.isfile(target_path)):
             return [self.parser.get_manual_file(target_path)]
         if os.path.isdir(target_path):
             return self.parser.search_html(target_path)
@@ -361,7 +365,6 @@ class Extractor:
 
 def main():
     root_dir = r'.'
-
     extractor = Extractor(100, include_chat_with_girls=True)
     files = extractor.parser.search_html(root_dir)
     extractor.download_from_html_files(files)
