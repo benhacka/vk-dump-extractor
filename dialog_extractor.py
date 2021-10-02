@@ -15,6 +15,7 @@ except ImportError:
 import os
 import re
 from enum import Enum, auto
+from multiprocessing.dummy import Pool as ThreadPool
 
 from bs4 import BeautifulSoup
 
@@ -34,6 +35,7 @@ class ParserMode(Enum):
 
 
 POSSIBLE_HTML_EXT = ['html', 'htm']
+VALID_PICTURE_TRAIL = ['.jpg', 'type=album']
 
 
 class DefaultDirNames(Enum):
@@ -64,6 +66,7 @@ class Image:
     def path_generator(source_file, url, author, date):
         name = '_'.join((date, author, url.split('/')[-1]))
         name = re.sub(r'[_]+', '_', name)
+        name = name.split('?')[0]
         return os.path.join(os.path.dirname(source_file), 'photo', name)
 
 
@@ -83,37 +86,74 @@ class Downloader:
         }
         self._semaphore = asyncio.Semaphore(thread_count)
         self._download_list = []
-        self._link_set = set()
+        # self._link_set = set()  # deprecated
+        self._name_set = set()
+        self._session = None
+        self._download_progress = 0
+
+    @property
+    def total_count(self):
+        return len(self._download_list)
 
     async def save_photo(self, img: Image):
-        async with aiohttp.ClientSession(headers=self._header) as session:
+        self._download_progress += 1
+        try:
+            if os.path.isfile(img.path):
+                return None
             try:
-                async with self._semaphore, session.get(img.url) as resp:
-                    if resp.status == 200:
-                        os.makedirs(img.file_dir, exist_ok=True)
-                        try:
-                            file = await aiofiles.open(img.path, mode='wb')
-                            await file.write(await resp.read())
-                        finally:
-                            await file.close()
+                async with self._semaphore, self._session.get(img.url) as resp:
+                    if resp.status != 200:
+                        raise aiohttp.ClientError(
+                            f'{img.url} '
+                            f'return code {resp.status} (not 200)')
+                    os.makedirs(img.file_dir, exist_ok=True)
+                    async with aiofiles.open(img.path, mode='wb') as file:
+                        await file.write(await resp.read())
+                    return False
             except Exception as e:
                 print(f'{e} - {img.url}')
+                return img
+        finally:
+            a_percent = (len(self._download_list) // 100)
+            progress_percent = self._download_progress // a_percent
+            if (not self._download_progress % a_percent
+                    and progress_percent in range(0, 101)):
+                print(f'Downloaded: {progress_percent}%')
 
     async def download_files(self):
-        await asyncio.gather(
-            *[self.save_photo(file) for file in self._download_list])
+        async with aiohttp.ClientSession(
+                headers=self._header) as self._session:
+            results = await asyncio.gather(
+                *[self.save_photo(file) for file in self._download_list])
+            self._download_progress = 0
+            skipped_count = len([res for res in results if res is None])
+            downloaded_count = (len([res for res in results if not res]) -
+                                skipped_count)
+            error_count = len(results) - skipped_count - downloaded_count
+            print(f'Skipped file count: {skipped_count}')
+            print(f'Downloaded file count: {downloaded_count}')
+            print(f'Error file count: {error_count}')
 
-    def _link_validator(self, url: str):
-        if (not url.startswith('http') or not url.endswith('.jpg')
-                or url in self._link_set):
+    @staticmethod
+    def _link_validator(url: str):
+        if (not url.startswith('http') or
+                not (any(url.endswith(trail)
+                         for trail in VALID_PICTURE_TRAIL))):
             return False
         return True
 
-    def push_img(self, source_file, url, author='', date=''):
-        if not self._link_validator(url):
-            return
-        self._link_set.add(url)
-        self._download_list.append(Image(source_file, url, author, date))
+    @staticmethod
+    def generate_image_object(source_file, url, author='', date=''):
+        return Image(source_file, url, author, date)
+
+    def push_img(self, image: Image):
+        if image.path in self._name_set:
+            return True
+        if not self._link_validator(image.url):
+            return False
+        self._name_set.add(image.path)
+        self._download_list.append(image)
+        return True
 
 
 class FileChecker:
@@ -258,10 +298,11 @@ class Parser:
                 return self._get_normal_files(dir_path, HtmlTypeDoc.DIALOG)
         return []
 
-    async def _parse_links_from_dialog(self, file):
-        async with aiofiles.open(file, encoding='utf-8') as f:
-            html = await f.read()
+    def _collect_links_from_dialog(self, file):
+        with open(file, encoding='utf-8') as f:
+            html = f.read()
         soup = BeautifulSoup(html, 'html.parser')
+        result = []
         for message in soup.find_all('div', {'class': 'im_in'}):
             photos = message.find_all('a', {'class': 'download_photo_type'},
                                       href=True)
@@ -275,18 +316,28 @@ class Parser:
             date_time = datetime.strptime(str_date, '%d.%m.%Y %H:%M')
             date = date_time.strftime('%Y%m%d%H%M')
             for url in photos:
-                self._download_manager.push_img(file, url, author, date)
+                if not url:
+                    continue
+                result.append(
+                    self._download_manager.generate_image_object(
+                        file, url, author, date))
+        print(f'{len(result)} links parsed from {file}')
+        return result
 
-    async def _parse_links_from_attachment(self, file):
-        async with aiofiles.open(file, encoding='utf-8') as f:
-            html = await f.read()
+    def _collect_links_from_attachment(self, file):
+        with open(file, encoding='utf-8') as f:
+            html = f.read()
         soup = BeautifulSoup(html, 'html.parser')
         photos = soup.find_all('a', {'class': 'download_photo_type'},
                                href=True)
+        result = []
         for photo in photos:
             url = photo.get('href')
             if url and url.startswith('http'):
-                self._download_manager.push_img(file, url)
+                result.append(
+                    self._download_manager.generate_image_object(file, url))
+        print(f'{len(result)} links parsed from {file}')
+        return result
 
     def search_html(self, root_path_for_search: str):
         files = []
@@ -313,11 +364,11 @@ class Parser:
             raise ValueError('Incorrect file')
         return HtmlFile(file_path, file_type)
 
-    async def parse_url_from_html(self, html_file: HtmlFile):
+    def parse_url_from_html(self, html_file: HtmlFile):
         if html_file.file_type is HtmlTypeDoc.DIALOG:
-            return await self._parse_links_from_dialog(html_file.file_path)
+            return self._collect_links_from_dialog(html_file.file_path)
         elif html_file.file_type is HtmlTypeDoc.PHOTOS_ONLY:
-            return await self._parse_links_from_attachment(html_file.file_path)
+            return self._collect_links_from_attachment(html_file.file_path)
 
 
 class Extractor:
@@ -356,15 +407,24 @@ class Extractor:
     def downloader(self):
         return self._downloader
 
-    def download_from_html_files(self, files: List[HtmlFile]):
-        async def async_main():
-            coroutines = [
-                self.parser.parse_url_from_html(file) for file in files
-            ]
-            await asyncio.gather(*coroutines)
-            await self.downloader.download_files()
+    async def download_from_html_files(self, files: List[HtmlFile]):
+        print(f'Total file count: {len(files)}')
+        if len(files) == 1:
+            result = self.parser.parse_url_from_html(files[0])
+        else:
+            with ThreadPool() as tp:
+                result = tp.map(self.parser.parse_url_from_html, files)
+                result = sum(result, [])
 
-        event_loop.run_until_complete(async_main())
+        print(f'Urls collected: {len(result)}')
+        print('Start filtering')
+        for img in result:
+            if not self.downloader.push_img(img):
+                print(f'Invalid image url: {img.url}')
+        print(f'Valid images after filtering: '
+              f'{self.downloader.total_count}')
+        print(f'Start downloading files')
+        await self.downloader.download_files()
 
     @classmethod
     def is_input_html_file(cls, target_path):
@@ -441,7 +501,7 @@ def arg_parser():
     return parser.parse_args()
 
 
-def main():
+async def amain():
     args = arg_parser()
     target = args.target_dir_file_path
     is_manual_file = Extractor.is_input_html_file(target)
@@ -456,9 +516,8 @@ def main():
                           girls_dir=args.girl_dir_name,
                           boys_dir=args.boy_dir_name)
     files = extractor.get_files(target, is_manual_file)
-    extractor.download_from_html_files(files)
+    await extractor.download_from_html_files(files)
 
 
 if __name__ == '__main__':
-    event_loop = asyncio.get_event_loop()
-    main()
+    asyncio.run(amain())
