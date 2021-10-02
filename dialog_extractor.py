@@ -160,7 +160,7 @@ class FileChecker:
     def __init__(self,
                  common_title='Общий лист фотографий',
                  photo_html_name='photos.html',
-                 dialog_pattern=r'history_.\d?\.html'):
+                 dialog_pattern=r'history_.\d?\.htm'):
         self._common_title = common_title
         self._photo_html = photo_html_name
         self._dialog_pattern = dialog_pattern
@@ -192,6 +192,10 @@ class HtmlFile:
     def __init__(self, file_path: str, file_type: HtmlTypeDoc):
         self._file_path = file_path
         self._file_type = file_type
+
+    @property
+    def is_htm(self):
+        return not self._file_path.endswith('html')
 
     @property
     def filename(self):
@@ -287,7 +291,9 @@ class Parser:
         return files
 
     def _get_files(self, dir_path, filenames):
-        if not any((filename.endswith('.html') for filename in filenames)):
+        if not any(
+                file.endswith(ext) for ext in POSSIBLE_HTML_EXT
+                for file in filenames):
             return []
         for common in self._common_paths:
             if common in dir_path:
@@ -298,14 +304,21 @@ class Parser:
                 return self._get_normal_files(dir_path, HtmlTypeDoc.DIALOG)
         return []
 
+    @staticmethod
+    def _get_a_filter(file):
+        if file.is_htm:
+            return None
+        return {'class': 'download_photo_type'}
+
     def _collect_links_from_dialog(self, file):
-        with open(file, encoding='utf-8') as f:
+        file_name = file.file_path
+        with open(file_name, encoding='utf-8') as f:
             html = f.read()
         soup = BeautifulSoup(html, 'html.parser')
         result = []
-        for message in soup.find_all('div', {'class': 'im_in'}):
-            photos = message.find_all('a', {'class': 'download_photo_type'},
-                                      href=True)
+        for message in soup.find_all('tr' if file.is_htm else 'div',
+                                     {'class': 'im_in'}):
+            photos = message.find_all('a', self._get_a_filter(file), href=True)
             if not photos:
                 continue
             photos = [img['href'] for img in photos]
@@ -320,23 +333,24 @@ class Parser:
                     continue
                 result.append(
                     self._download_manager.generate_image_object(
-                        file, url, author, date))
-        print(f'{len(result)} links parsed from {file}')
+                        file_name, url, author, date))
+        print(f'{len(result)} links parsed from {file_name}')
         return result
 
     def _collect_links_from_attachment(self, file):
-        with open(file, encoding='utf-8') as f:
+        file_name = file.file_path
+        with open(file_name, encoding='utf-8') as f:
             html = f.read()
         soup = BeautifulSoup(html, 'html.parser')
-        photos = soup.find_all('a', {'class': 'download_photo_type'},
-                               href=True)
+        photos = soup.find_all('a', self._get_a_filter(file), href=True)
         result = []
         for photo in photos:
             url = photo.get('href')
             if url and url.startswith('http'):
                 result.append(
-                    self._download_manager.generate_image_object(file, url))
-        print(f'{len(result)} links parsed from {file}')
+                    self._download_manager.generate_image_object(
+                        file_name, url))
+        print(f'{len(result)} links parsed from {file_name}')
         return result
 
     def search_html(self, root_path_for_search: str):
@@ -366,9 +380,9 @@ class Parser:
 
     def parse_url_from_html(self, html_file: HtmlFile):
         if html_file.file_type is HtmlTypeDoc.DIALOG:
-            return self._collect_links_from_dialog(html_file.file_path)
+            return self._collect_links_from_dialog(html_file)
         elif html_file.file_type is HtmlTypeDoc.PHOTOS_ONLY:
-            return self._collect_links_from_attachment(html_file.file_path)
+            return self._collect_links_from_attachment(html_file)
 
 
 class Extractor:
@@ -383,8 +397,9 @@ class Extractor:
                  attachment_path_name: str = 'Вложения',
                  chat_path_name: str = 'Диалоги',
                  girls_dir: str = 'Девочки',
-                 boys_dir: str = 'Парни'):
-        self._file_checker = FileChecker()
+                 boys_dir: str = 'Парни',
+                 photo_file_name: str = 'photos.html'):
+        self._file_checker = FileChecker(photo_html_name=photo_file_name)
         self._downloader = Downloader(thread_count)
         self._parser = Parser(
             self._file_checker,
@@ -492,6 +507,12 @@ def arg_parser():
                         default=DefaultDirNames.BOYS_DIR.value,
                         help=(f'Boy dir name. '
                               f'Default: {DefaultDirNames.BOYS_DIR.value}'))
+    default_photo_file_name = 'photos.html'
+    parser.add_argument('-pn',
+                        '--photo-file-name',
+                        default=default_photo_file_name,
+                        help=(f'Photo htm(l) file name. '
+                              f'Default {default_photo_file_name}'))
     default_thread_count = 100
     parser.add_argument('--thread-count',
                         default=default_thread_count,
@@ -514,7 +535,8 @@ async def amain():
                           attachment_path_name=args.attachment_dir_name,
                           chat_path_name=args.dialog_dir_name,
                           girls_dir=args.girl_dir_name,
-                          boys_dir=args.boy_dir_name)
+                          boys_dir=args.boy_dir_name,
+                          photo_file_name=args.photo_file_name)
     files = extractor.get_files(target, is_manual_file)
     await extractor.download_from_html_files(files)
 
