@@ -5,7 +5,7 @@ import aiofiles
 import aiohttp
 
 try:
-    from typing import Optional, List
+    from typing import Optional, List, Tuple
 except ImportError:
     raise Exception('Update your fucking python to 3.5+ for good coroutines')
 
@@ -161,28 +161,28 @@ class Parser:
                  file_checker: FileChecker,
                  download_manager: Downloader,
                  *,
-                 include_common_girls: bool = False,
-                 include_common_boys: bool = False,
+                 include_attachment_girls: bool = False,
+                 include_attachment_boys: bool = False,
                  include_chat_with_girls: bool = False,
                  include_chat_with_boys: bool = False,
                  manual_file=False,
-                 include_path_name: str = 'Вложения',
+                 attachment_path_name: str = 'Вложения',
                  chat_path_name: str = 'Диалоги',
                  girls_dir: str = 'Девочки',
                  boys_dir: str = 'Парни'):
         self._file_checker = file_checker
         self._download_manager = download_manager
-        self._include_common_girls = include_common_girls
-        self._include_common_boys = include_common_boys
+        self._include_attachment_girls = include_attachment_girls
+        self._include_attachment_boys = include_attachment_boys
         self._include_chat_with_girls = include_chat_with_girls
         self._include_chat_with_boys = include_chat_with_boys
-        if not any(
-            (include_common_girls, include_chat_with_girls,
-             include_common_boys, include_chat_with_boys)) and not manual_file:
+        if not any((include_attachment_girls, include_chat_with_girls,
+                    include_attachment_boys,
+                    include_chat_with_boys)) and not manual_file:
             raise ValueError('No sources to download!')
         self._mode = (ParserMode.TARGET_FILE
                       if manual_file else ParserMode.AUTO_SEARCH)
-        self._include_path_name = include_path_name
+        self._attachment_path_name = attachment_path_name
         self._chat_path_name = chat_path_name
         self._girls_dir = girls_dir
         self._boys_dir = boys_dir
@@ -202,12 +202,12 @@ class Parser:
     @property
     def _common_girls(self):
         return self._path_generator(self._common_path, self._girls_dir,
-                                    self._include_common_girls)
+                                    self._include_attachment_girls)
 
     @property
     def _common_boys(self):
         return self._path_generator(self._common_path, self._boys_dir,
-                                    self._include_common_boys)
+                                    self._include_attachment_boys)
 
     @property
     def _chat_girls(self):
@@ -266,7 +266,7 @@ class Parser:
             for url in photos:
                 self._download_manager.push_img(file, url, author, date)
 
-    async def _parse_links_from_common(self, file):
+    async def _parse_links_from_attachment(self, file):
         async with aiofiles.open(file, encoding='utf-8') as f:
             html = await f.read()
         soup = BeautifulSoup(html, 'html.parser')
@@ -281,10 +281,10 @@ class Parser:
         files = []
 
         for dir_path, dir_names, filenames in os.walk(root_path_for_search):
-            if os.path.basename(dir_path) == self._include_path_name:
+            if os.path.basename(dir_path) == self._attachment_path_name:
                 if not any((
-                        self._include_common_boys,
-                        self._include_common_girls,
+                        self._include_attachment_boys,
+                        self._include_attachment_girls,
                 )):
                     continue
                 self._common_path = dir_path
@@ -306,35 +306,36 @@ class Parser:
         if html_file.file_type is HtmlTypeDoc.DIALOG:
             return await self._parse_links_from_dialog(html_file.file_path)
         elif html_file.file_type is HtmlTypeDoc.PHOTOS_ONLY:
-            return await self._parse_links_from_common(html_file.file_path)
+            return await self._parse_links_from_attachment(html_file.file_path)
 
 
 class Extractor:
     def __init__(self,
                  thread_count,
                  *,
-                 include_common_girls: bool = False,
-                 include_common_boys: bool = False,
+                 include_attachment_girls: bool = False,
+                 include_attachment_boys: bool = False,
                  include_chat_with_girls: bool = False,
                  include_chat_with_boys: bool = False,
                  manual_file=False,
-                 include_path_name: str = 'Вложения',
+                 attachment_path_name: str = 'Вложения',
                  chat_path_name: str = 'Диалоги',
                  girls_dir: str = 'Девочки',
                  boys_dir: str = 'Парни'):
         self._file_checker = FileChecker()
         self._downloader = Downloader(thread_count)
-        self._parser = Parser(self._file_checker,
-                              self._downloader,
-                              include_common_girls=include_common_girls,
-                              include_common_boys=include_common_boys,
-                              include_chat_with_girls=include_chat_with_girls,
-                              include_chat_with_boys=include_chat_with_boys,
-                              manual_file=manual_file,
-                              include_path_name=include_path_name,
-                              chat_path_name=chat_path_name,
-                              girls_dir=girls_dir,
-                              boys_dir=boys_dir)
+        self._parser = Parser(
+            self._file_checker,
+            self._downloader,
+            include_attachment_girls=include_attachment_girls,
+            include_attachment_boys=include_attachment_boys,
+            include_chat_with_girls=include_chat_with_girls,
+            include_chat_with_boys=include_chat_with_boys,
+            manual_file=manual_file,
+            attachment_path_name=attachment_path_name,
+            chat_path_name=chat_path_name,
+            girls_dir=girls_dir,
+            boys_dir=boys_dir)
 
     @property
     def parser(self):
@@ -354,19 +355,20 @@ class Extractor:
 
         event_loop.run_until_complete(async_main())
 
-    def get_files(self, target_path: str):
+    def get_files(self, target_path: str) -> Tuple[List[HtmlFile], bool]:
+        """Return list of files and bool - is_a_manual"""
         if (any(target_path.endswith(ext) for ext in POSSIBLE_HTML_EXT)
                 and os.path.isfile(target_path)):
-            return [self.parser.get_manual_file(target_path)]
+            return [self.parser.get_manual_file(target_path)], True
         if os.path.isdir(target_path):
-            return self.parser.search_html(target_path)
+            return self.parser.search_html(target_path), False
         raise ValueError('Unknown target')
 
 
 def main():
     root_dir = r'.'
     extractor = Extractor(100, include_chat_with_girls=True)
-    files = extractor.parser.search_html(root_dir)
+    files, is_manual = extractor.parser.search_html(root_dir)
     extractor.download_from_html_files(files)
 
 
