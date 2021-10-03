@@ -305,10 +305,10 @@ class Parser:
         return []
 
     @staticmethod
-    def _get_a_filter(file):
+    def _get_image_container_and_a_filter(file):
         if file.is_htm:
-            return None
-        return {'class': 'download_photo_type'}
+            return 'tr', None
+        return 'div', {'class': 'download_photo_type'}
 
     def _collect_links_from_dialog(self, file):
         file_name = file.file_path
@@ -316,9 +316,9 @@ class Parser:
             html = f.read()
         soup = BeautifulSoup(html, 'html.parser')
         result = []
-        for message in soup.find_all('tr' if file.is_htm else 'div',
-                                     {'class': 'im_in'}):
-            photos = message.find_all('a', self._get_a_filter(file), href=True)
+        img_container, a_filter = self._get_image_container_and_a_filter(file)
+        for message in soup.find_all(img_container, {'class': 'im_in'}):
+            photos = message.find_all('a', a_filter, href=True)
             if not photos:
                 continue
             photos = [img['href'] for img in photos]
@@ -342,7 +342,8 @@ class Parser:
         with open(file_name, encoding='utf-8') as f:
             html = f.read()
         soup = BeautifulSoup(html, 'html.parser')
-        photos = soup.find_all('a', self._get_a_filter(file), href=True)
+        _, a_filter = self._get_image_container_and_a_filter(file)
+        photos = soup.find_all('a', a_filter, href=True)
         result = []
         for photo in photos:
             url = photo.get('href')
