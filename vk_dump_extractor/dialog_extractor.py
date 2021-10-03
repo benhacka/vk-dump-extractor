@@ -39,7 +39,7 @@ class ParserMode(Enum):
 
 
 POSSIBLE_HTML_EXT = ['html', 'htm']
-VALID_PICTURE_TRAIL = ['.jpg', 'type=album']
+VALID_PICTURE_TRAIL = ['.jpg', '.jpeg', 'type=album']
 
 
 class DefaultDirNames(Enum):
@@ -351,7 +351,10 @@ class Parser:
 
     def search_html(self, root_path_for_search: str):
         files = []
-
+        if self._chat_path_name == ".":
+            chat_dir = os.path.basename(root_path_for_search)
+        else:
+            chat_dir = self._chat_path_name
         for dir_path, _, filenames in os.walk(root_path_for_search):
             if os.path.basename(dir_path) == self._attachment_path_name:
                 if not any((
@@ -360,7 +363,7 @@ class Parser:
                 )):
                     continue
                 self._common_path = dir_path
-            elif os.path.basename(dir_path) == self._chat_path_name:
+            elif os.path.basename(dir_path) == chat_dir:
                 if not any((self._include_chat_with_boys,
                             self._include_chat_with_girls)):
                     continue
@@ -493,7 +496,8 @@ def arg_parser():
         '--dialog-dir-name',
         default=DefaultDirNames.CHAT_PATH_NAME.value,
         help=(f'Dialog directory name. '
-              f'Default: {DefaultDirNames.CHAT_PATH_NAME.value}'))
+              f'Default: {DefaultDirNames.CHAT_PATH_NAME.value}. '
+              f'"." for root dir (old style hierarchy)'))
     parser.add_argument('-gn',
                         '--girl-dir-name',
                         default=DefaultDirNames.GIRLS_DIR.value,
