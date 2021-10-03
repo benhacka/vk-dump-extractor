@@ -322,7 +322,7 @@ class Parser:
             }).text
             str_date = message.find('a', {'class': 'im_date_link'}).text
             date_time = datetime.strptime(str_date, '%d.%m.%Y %H:%M')
-            date = date_time.strftime('%Y-%m-%d_%H-%M')
+            date = date_time.strftime('[%Y-%m-%d_%H-%M]')
             for url in photos:
                 if not url:
                     continue
