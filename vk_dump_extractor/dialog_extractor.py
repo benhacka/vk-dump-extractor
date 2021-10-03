@@ -7,7 +7,7 @@ from datetime import datetime
 
 try:
     from typing import Optional, List
-    if sys.version_info >= (3, 7):
+    if sys.version_info <= (3, 7):
         raise ImportError
 except ImportError as error:
     raise Exception(
@@ -538,5 +538,9 @@ async def amain():
     await extractor.download_from_html_files(files)
 
 
-if __name__ == '__main__':
+def main():
     asyncio.run(amain())
+
+
+if __name__ == '__main__':
+    main()
