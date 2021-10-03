@@ -4,11 +4,8 @@ import asyncio
 from argparse import ArgumentParser
 from datetime import datetime
 
-import aiofiles
-import aiohttp
-
 try:
-    from typing import Optional, List, Tuple
+    from typing import Optional, List
 except ImportError:
     raise Exception('Update your fucking python to 3.5+ for good coroutines')
 
@@ -17,6 +14,8 @@ import re
 from enum import Enum, auto
 from multiprocessing.dummy import Pool as ThreadPool
 
+import aiofiles
+import aiohttp
 from bs4 import BeautifulSoup
 
 
@@ -110,8 +109,8 @@ class Downloader:
                     async with aiofiles.open(img.path, mode='wb') as file:
                         await file.write(await resp.read())
                     return False
-            except Exception as e:
-                print(f'{e} - {img.url}')
+            except (aiohttp.ClientError, OSError, TimeoutError) as err:
+                print(f'{err} - {img.url}')
                 return img
         finally:
             a_percent = (len(self._download_list) // 100)
@@ -186,6 +185,7 @@ class FileChecker:
             return HtmlTypeDoc.DIALOG
         if need_to_check_file:
             return self.check_by_html(file_path)
+        return None
 
 
 class HtmlFile:
@@ -314,10 +314,10 @@ class Parser:
         file_name = file.file_path
         with open(file_name, encoding='utf-8') as f:
             html = f.read()
-        soup = BeautifulSoup(html, 'html.parser')
         result = []
         img_container, a_filter = self._get_image_container_and_a_filter(file)
-        for message in soup.find_all(img_container, {'class': 'im_in'}):
+        for message in BeautifulSoup(html, 'html.parser').find_all(
+                img_container, {'class': 'im_in'}):
             photos = message.find_all('a', a_filter, href=True)
             if not photos:
                 continue
@@ -357,7 +357,7 @@ class Parser:
     def search_html(self, root_path_for_search: str):
         files = []
 
-        for dir_path, dir_names, filenames in os.walk(root_path_for_search):
+        for dir_path, _, filenames in os.walk(root_path_for_search):
             if os.path.basename(dir_path) == self._attachment_path_name:
                 if not any((
                         self._include_attachment_boys,
@@ -382,8 +382,9 @@ class Parser:
     def parse_url_from_html(self, html_file: HtmlFile):
         if html_file.file_type is HtmlTypeDoc.DIALOG:
             return self._collect_links_from_dialog(html_file)
-        elif html_file.file_type is HtmlTypeDoc.PHOTOS_ONLY:
+        if html_file.file_type is HtmlTypeDoc.PHOTOS_ONLY:
             return self._collect_links_from_attachment(html_file)
+        raise NotImplementedError
 
 
 class Extractor:
@@ -428,8 +429,8 @@ class Extractor:
         if len(files) == 1:
             result = self.parser.parse_url_from_html(files[0])
         else:
-            with ThreadPool() as tp:
-                result = tp.map(self.parser.parse_url_from_html, files)
+            with ThreadPool() as pool:
+                result = pool.map(self.parser.parse_url_from_html, files)
                 result = sum(result, [])
 
         print(f'Urls collected: {len(result)}')
@@ -439,7 +440,7 @@ class Extractor:
                 print(f'Invalid image url: {img.url}')
         print(f'Valid images after filtering: '
               f'{self.downloader.total_count}')
-        print(f'Start downloading files')
+        print('Start downloading files')
         await self.downloader.download_files()
 
     @classmethod
