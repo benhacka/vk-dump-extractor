@@ -17,6 +17,7 @@ from multiprocessing.dummy import Pool as ThreadPool
 import aiofiles
 import aiohttp
 from bs4 import BeautifulSoup
+from tqdm.asyncio import tqdm
 
 
 def get_soup(html_file_path):
@@ -88,43 +89,33 @@ class Downloader:
         # self._link_set = set()  # deprecated
         self._name_set = set()
         self._session = None
-        self._download_progress = 0
 
     @property
     def total_count(self):
         return len(self._download_list)
 
     async def save_photo(self, img: Image):
-        self._download_progress += 1
+        if os.path.isfile(img.path):
+            return None
         try:
-            if os.path.isfile(img.path):
-                return None
-            try:
-                async with self._semaphore, self._session.get(img.url) as resp:
-                    if resp.status != 200:
-                        raise aiohttp.ClientError(
-                            f'{img.url} '
-                            f'return code {resp.status} (not 200)')
-                    os.makedirs(img.file_dir, exist_ok=True)
-                    async with aiofiles.open(img.path, mode='wb') as file:
-                        await file.write(await resp.read())
-                    return False
-            except (aiohttp.ClientError, OSError, TimeoutError) as err:
-                print(f'{err} - {img.url}')
-                return img
-        finally:
-            a_percent = (len(self._download_list) // 100)
-            progress_percent = self._download_progress // a_percent
-            if (not self._download_progress % a_percent
-                    and progress_percent in range(0, 101)):
-                print(f'Downloaded: {progress_percent}%')
+            async with self._semaphore, self._session.get(img.url) as resp:
+                if resp.status != 200:
+                    raise aiohttp.ClientError(
+                        f'{img.url} '
+                        f'return code {resp.status} (not 200)')
+                os.makedirs(img.file_dir, exist_ok=True)
+                async with aiofiles.open(img.path, mode='wb') as file:
+                    await file.write(await resp.read())
+                return False
+        except (aiohttp.ClientError, OSError, TimeoutError) as err:
+            print(f'{err} - {img.url}')
+            return img
 
     async def download_files(self):
         async with aiohttp.ClientSession(
                 headers=self._header) as self._session:
-            results = await asyncio.gather(
+            results = await tqdm.gather(
                 *[self.save_photo(file) for file in self._download_list])
-            self._download_progress = 0
             skipped_count = len([res for res in results if res is None])
             downloaded_count = (len([res for res in results if not res]) -
                                 skipped_count)

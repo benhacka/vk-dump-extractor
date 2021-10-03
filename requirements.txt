@@ -1,3 +1,4 @@
 aiofiles
 aiohttp
 beautifulsoup4
+tqdm~=4.62.2
