@@ -7,11 +7,11 @@ from datetime import datetime
 
 try:
     from typing import Optional, List
-    if sys.version_info <= (3, 7):
+    if sys.version_info < (3, 7):
         raise ImportError
 except ImportError as error:
     raise Exception(
-        'Update your python to 3.7+ for good coroutines') from error
+        'Update your python to 3.7+') from error
 
 import os
 import re
