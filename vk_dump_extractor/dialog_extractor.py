@@ -154,7 +154,7 @@ class FileChecker:
     def __init__(self,
                  common_title='Общий лист фотографий',
                  photo_html_name='photos.html',
-                 dialog_pattern=r'history_.\d?\.htm'):
+                 dialog_pattern=r'history_.\d*\.htm'):
         self._common_title = common_title
         self._photo_html = photo_html_name
         self._dialog_pattern = dialog_pattern
