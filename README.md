@@ -180,7 +180,7 @@ _для удобства можно перейти в нужную папку в
 
 И в этой папке выполнить команду, которая создает общую папку, рекурсивно ищет jpg исключая саму папку и перемещает. 
 ```bash
-mdkir -p common_photos
+mkdir -p common_photos
 find . -name "*.jpg" -not -path "./common_photos/*"  | xargs -I '{}' mv {} common_photos
 ```
 
