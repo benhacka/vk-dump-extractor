@@ -10,8 +10,7 @@ try:
     if sys.version_info < (3, 7):
         raise ImportError
 except ImportError as error:
-    raise Exception(
-        'Update your python to 3.7+') from error
+    raise Exception('Update your python to 3.7+') from error
 
 import os
 import re
@@ -39,7 +38,7 @@ class ParserMode(Enum):
 
 
 POSSIBLE_HTML_EXT = ['html', 'htm']
-VALID_PICTURE_TRAIL = ['.jpg', '.jpeg', 'type=album']
+VALID_PICTURE_TRAIL = ['.jpg', '.jpeg']
 
 
 class DefaultDirNames(Enum):
@@ -130,11 +129,11 @@ class Downloader:
 
     @staticmethod
     def _link_validator(url: str):
-        if (not url.startswith('http') or
-                not (any(url.endswith(trail)
-                         for trail in VALID_PICTURE_TRAIL))):
-            return False
-        return True
+        trailed_url = url.split('?')[0]
+        valid_head = trailed_url.startswith('http')
+        valid_trail = any(
+            trailed_url.endswith(trail) for trail in VALID_PICTURE_TRAIL)
+        return valid_head and valid_trail
 
     @staticmethod
     def generate_image_object(source_file, url, author='', date=''):
